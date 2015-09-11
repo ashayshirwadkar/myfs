@@ -5,10 +5,24 @@
 #include <linux/slab.h>
 #include <linux/dcache.h>
 
+#define MYFS_MAGIC 0xabcd
+
 static void myfs_put_super(struct super_block *sb)
 {
 	pr_debug("myfs super block destroyed\n");
 }
+
+static struct file_operations const myfs_dir_ops = {
+#if 0
+	.readdir = &rkfs_f_readdir
+#endif
+};
+
+static struct inode_operations const myfs_inode_ops = {
+#if 0
+	.lookup = myfs_lookup
+#endif
+};
 
 static struct super_operations const myfs_super_ops = {
 	.put_super = myfs_put_super
@@ -19,7 +33,7 @@ static int myfs_fill_sb(struct super_block *sb, void *data, int silent)
 	struct inode *root = NULL;
 
 	/* Fill the superblock */
-	sb->s_magic = 1207;
+	sb->s_magic = MYFS_MAGIC;
 	sb->s_op = &myfs_super_ops;
 
 	root = new_inode(sb);
@@ -31,6 +45,8 @@ static int myfs_fill_sb(struct super_block *sb, void *data, int silent)
 	root->i_ino = 0;
 	root->i_sb = sb;
 	root->i_atime = root->i_mtime = root->i_ctime = CURRENT_TIME;
+	root->i_op = &myfs_inode_ops;
+	root->i_fop = &myfs_dir_ops;
 	inode_init_owner(root, NULL, S_IFDIR);
 
 	sb->s_root = d_make_root(root);
