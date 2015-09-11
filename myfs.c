@@ -6,17 +6,13 @@
 #include <linux/dcache.h>
 
 #define MYFS_MAGIC 0xabcd
+#define FILE_INODE_NUMBER 2
 
+static struct file_operations const myfs_dir_ops; 
 static void myfs_put_super(struct super_block *sb)
 {
 	pr_debug("myfs super block destroyed\n");
 }
-
-static struct file_operations const myfs_dir_ops = {
-#if 0
-	.readdir = &rkfs_f_readdir
-#endif
-};
 
 static struct inode_operations const myfs_inode_ops = {
 #if 0
@@ -42,7 +38,7 @@ static int myfs_fill_sb(struct super_block *sb, void *data, int silent)
 		return -ENOMEM;
 	}
 
-	root->i_ino = 0;
+	root->i_ino = 1;
 	root->i_sb = sb;
 	root->i_atime = root->i_mtime = root->i_ctime = CURRENT_TIME;
 	root->i_op = &myfs_inode_ops;
@@ -64,8 +60,8 @@ static struct dentry *myfs_mount(struct file_system_type *type, int flags,
 	/* mount_bdev will call myfs_fill_sb to fill superblock. This
 	 * function will return dentry of fs root node
 	 */
-	struct dentry *const entry = mount_bdev(type, flags, dev,
-						data, myfs_fill_sb);
+	struct dentry *const entry = mount_bdev(type, flags, dev, data,
+						myfs_fill_sb);
 	if (IS_ERR(entry))
 		pr_err("myfs mounting failed\n");
 	else
@@ -79,6 +75,25 @@ static struct file_system_type myfs_type = {
 	.mount = myfs_mount,
 	.kill_sb = kill_block_super,
 	.fs_flags = FS_REQUIRES_DEV,
+};
+
+static int myfs_readdir(struct file *file,  struct dir_context *ctx)
+{
+	struct dentry *de = file->f_dentry;
+	
+	pr_debug("myfs: file_operations.readdir called\n");
+	if(file->f_pos > 0)
+		return 1;
+	if(ctx->actor(ctx, ".", 1, file->f_pos++, de->d_inode->i_ino, DT_DIR) ||
+	   (ctx->actor(ctx, "..", 2, file->f_pos++, de->d_parent->d_inode->i_ino, DT_DIR)))
+		return 0;
+	if(ctx->actor(ctx, "hello.txt", 9, file->f_pos++, FILE_INODE_NUMBER, DT_REG))
+		return 0;
+	return 1;
+}
+
+static struct file_operations const myfs_dir_ops = {
+	.iterate = myfs_readdir
 };
 
 static int __init myfs_init(void)
