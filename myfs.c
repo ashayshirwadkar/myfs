@@ -4,21 +4,43 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/dcache.h>
+#include <linux/string.h>
 
 #define MYFS_MAGIC 0xabcd
-#define FILE_INODE_NUMBER 2
+#define ROOT_INO 1
+#define FILE_INO 2
 
-static struct file_operations const myfs_dir_ops; 
+static struct file_operations const myfs_dir_ops;
+static struct inode_operations const myfs_inode_ops;
+static struct file_operations const myfs_file_ops;
+
 static void myfs_put_super(struct super_block *sb)
 {
 	pr_debug("myfs super block destroyed\n");
 }
 
-static struct inode_operations const myfs_inode_ops = {
-#if 0
-	.lookup = myfs_lookup
-#endif
-};
+static struct dentry *myfs_lookup(struct inode *dir, struct dentry *dentry,
+				  unsigned int flags)
+{
+	struct inode *file_inode = NULL;
+
+	if (dir->i_ino != ROOT_INO ||
+	    strlen("hello.txt") != dentry->d_name.len ||
+	    strcmp(dentry->d_name.name, "hello.txt"))
+		return ERR_PTR(-ENOENT);
+	/* Allocate an inode object */
+	file_inode = iget_locked(dir->i_sb, FILE_INO);
+	if (!file_inode)
+		return ERR_PTR(-ENOMEM);
+	file_inode->i_size = 0; /* File_size */
+	file_inode->i_mode = S_IFREG|S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH;
+	file_inode->i_fop = &myfs_file_ops;
+	/* Add the inode to the dentry object */
+	d_add(dentry, file_inode);
+	pr_debug("rkfs: inode_operations.lookup called with dentry %s.\n",
+		 dentry->d_name.name);
+	return NULL;
+}
 
 static struct super_operations const myfs_super_ops = {
 	.put_super = myfs_put_super
@@ -27,6 +49,8 @@ static struct super_operations const myfs_super_ops = {
 static int myfs_fill_sb(struct super_block *sb, void *data, int silent)
 {
 	struct inode *root = NULL;
+
+	pr_debug("myfs: fill_super called\n");
 
 	/* Fill the superblock */
 	sb->s_magic = MYFS_MAGIC;
@@ -38,7 +62,7 @@ static int myfs_fill_sb(struct super_block *sb, void *data, int silent)
 		return -ENOMEM;
 	}
 
-	root->i_ino = 1;
+	root->i_ino = ROOT_INO;
 	root->i_sb = sb;
 	root->i_atime = root->i_mtime = root->i_ctime = CURRENT_TIME;
 	root->i_op = &myfs_inode_ops;
@@ -79,16 +103,19 @@ static struct file_system_type myfs_type = {
 
 static int myfs_readdir(struct file *file,  struct dir_context *ctx)
 {
-	struct dentry *de = file->f_dentry;
-	
+	struct dentry *de = file->f_path.dentry;
+
 	pr_debug("myfs: file_operations.readdir called\n");
-	if(file->f_pos > 0)
+	if (ctx->pos > 0)
 		return 1;
-	if(ctx->actor(ctx, ".", 1, file->f_pos++, de->d_inode->i_ino, DT_DIR) ||
-	   (ctx->actor(ctx, "..", 2, file->f_pos++, de->d_parent->d_inode->i_ino, DT_DIR)))
+
+	if (dir_emit(ctx, ".", 1, de->d_inode->i_ino, DT_DIR) ||
+	   dir_emit(ctx, "..", 2, de->d_parent->d_inode->i_ino, DT_DIR) ||
+	   dir_emit(ctx, "hello.txt", 9, FILE_INO, DT_REG)) {
+		pr_debug("myfs: file_operations.readdir called");
+		ctx->pos = ctx->pos + 14;
 		return 0;
-	if(ctx->actor(ctx, "hello.txt", 9, file->f_pos++, FILE_INODE_NUMBER, DT_REG))
-		return 0;
+	}
 	return 1;
 }
 
@@ -96,9 +123,17 @@ static struct file_operations const myfs_dir_ops = {
 	.iterate = myfs_readdir
 };
 
+static struct file_operations const myfs_file_ops = {
+};
+
+static struct inode_operations const myfs_inode_ops = {
+	.lookup = myfs_lookup
+};
+
 static int __init myfs_init(void)
 {
 	int ret = 0;
+
 	ret = register_filesystem(&myfs_type);
 	if (ret != 0) {
 		pr_err("cannot register filesystem\n");
@@ -110,6 +145,7 @@ static int __init myfs_init(void)
 static void __exit myfs_fini(void)
 {
 	int const ret = unregister_filesystem(&myfs_type);
+
 	if (ret != 0)
 		pr_err("cannot unregister filesystem\n");
 	pr_debug("myfs module unloaded\n");
