@@ -37,7 +37,7 @@ static struct dentry *myfs_lookup(struct inode *dir, struct dentry *dentry,
 	file_inode->i_fop = &myfs_file_ops;
 	/* Add the inode to the dentry object */
 	d_add(dentry, file_inode);
-	pr_debug("rkfs: inode_operations.lookup called with dentry %s.\n",
+	pr_debug("myfs: inode_operations.lookup called with dentry %s.\n",
 		 dentry->d_name.name);
 	return NULL;
 }
@@ -81,7 +81,8 @@ static int myfs_fill_sb(struct super_block *sb, void *data, int silent)
 static struct dentry *myfs_mount(struct file_system_type *type, int flags,
 				 char const *dev, void *data)
 {
-	/* mount_bdev will call myfs_fill_sb to fill superblock. This
+	/*
+	 * mount_bdev will call myfs_fill_sb to fill superblock. This
 	 * function will return dentry of fs root node
 	 */
 	struct dentry *const entry = mount_bdev(type, flags, dev, data,
@@ -106,17 +107,18 @@ static int myfs_readdir(struct file *file,  struct dir_context *ctx)
 	struct dentry *de = file->f_path.dentry;
 
 	pr_debug("myfs: file_operations.readdir called\n");
-	if (ctx->pos > 0)
-		return 1;
 
-	if (dir_emit(ctx, ".", 1, de->d_inode->i_ino, DT_DIR) ||
-	   dir_emit(ctx, "..", 2, de->d_parent->d_inode->i_ino, DT_DIR) ||
-	   dir_emit(ctx, "hello.txt", 9, FILE_INO, DT_REG)) {
-		pr_debug("myfs: file_operations.readdir called");
-		ctx->pos = ctx->pos + 14;
+	/* This shows that directory structure is filled already */
+	if (ctx->pos > 0)
 		return 0;
-	}
-	return 1;
+
+	/* Fill the directory structure for the first time */
+	dir_emit(ctx, ".", 1, de->d_inode->i_ino, DT_DIR);
+	dir_emit(ctx, "..", 2, de->d_parent->d_inode->i_ino, DT_DIR);
+	dir_emit(ctx, "hello.txt", 9, FILE_INO, DT_REG) ;
+	ctx->pos = ctx->pos + 14;
+	
+	return 0;
 }
 
 static struct file_operations const myfs_dir_ops = {
@@ -142,6 +144,7 @@ static int __init myfs_init(void)
 	pr_debug("myfs module loaded\n");
 	return 0;
 }
+
 static void __exit myfs_fini(void)
 {
 	int const ret = unregister_filesystem(&myfs_type);
